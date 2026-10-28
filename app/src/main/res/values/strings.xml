@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ТВ Каналы</string>
+    <string name="all_channels">Все каналы</string>
+    <string name="loading">Загрузка…</string>
+    <string name="unavailable">Канал недоступен</string>
+    <string name="press_back_again">Нажмите «Назад» ещё раз для выхода</string>
+    <string name="unavailable_skip">Канал недоступен, переключаю…</string>
+    <string name="tab_recent">Недавние</string>
+    <string name="tab_favorites">★ Избранное</string>
+    <string name="tab_settings">⚙ Настройки</string>
+    <string name="empty_recent">Здесь появятся каналы, которые вы смотрели</string>
+    <string name="empty_favorites">Пока пусто.\nЗажмите OK на канале, чтобы добавить его в избранное</string>
+    <string name="fav_added">«%1$s» добавлен в избранное</string>
+    <string name="fav_removed">«%1$s» убран из избранного</string>
+    <string name="settings_title">Настройки</string>
+    <string name="settings_footer">ТВ Каналы %1$s · каналов: %2$d, с запасным потоком: %3$d</string>
+    <string name="set_start">При запуске включать</string>
+    <string name="start_last">Последний канал</string>
+    <string name="start_first">Первый канал</string>
+    <string name="set_quality">Качество видео</string>
+    <string name="quality_auto">Максимальное</string>
+    <string name="set_skip_dead">Пропускать нерабочие каналы при листании</string>
+    <string name="set_regional">Показывать региональные каналы</string>
+    <string name="set_info">Показ плашки с названием канала</string>
+    <string name="set_sleep">Таймер сна</string>
+    <string name="set_clear_recent">Очистить «Недавние»</string>
+    <string name="set_clear_favorites">Очистить «Избранное»</string>
+    <string name="cleared">Очищено</string>
+    <string name="on">Вкл</string>
+    <string name="off">Выкл</string>
+    <string name="guide_now">СЕЙЧАС</string>
+    <string name="guide_hint">◀ ▶ другой канал · OK — смотреть · Назад — закрыть</string>
+    <string name="guide_loading">Загружаю телепрограмму…</string>
+    <string name="guide_none">Для этого канала телепрограммы нет</string>
+    <string name="guide_error">Не удалось загрузить телепрограмму</string>
+    <string name="epg_now">Сейчас: %1$s %2$s</string>
+    <string name="epg_next">Далее: %1$s %2$s</string>
+    <string name="guide_title">%1$d  %2$s</string>
+</resources>

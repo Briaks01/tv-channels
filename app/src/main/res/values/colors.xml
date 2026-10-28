@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="text">#FFFFFFFF</color>
+    <color name="text_dim">#99FFFFFF</color>
+    <color name="accent">#FF4FC3F7</color>
+    <color name="menu_bg">#E6101418</color>
+    <color name="panel_bg">#CC101418</color>
+    <color name="card">#FF2A2F36</color>
+    <color name="card_playing">#FF34495E</color>
+    <color name="logo_bg">#FF3A4049</color>
+    <color name="star">#FFFFC107</color>
+    <color name="settings_bg">#FF101418</color>
+</resources>
