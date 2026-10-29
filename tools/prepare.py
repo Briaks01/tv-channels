@@ -18,7 +18,7 @@ app/src/main/assets/channels.m3u.
 прогрессивные (чересстрочный эфирный SD на стике почти не играет), среди них
 от большего разрешения к меньшему, при равных — по порядку файлов.
 
-Запуск: python3 -I tools/prepare.py основной.m3u [дополнительный.m3u ...]
+Запуск: python3 -I tools/prepare.py [--ci] основной.m3u [дополнительный.m3u ...]
 """
 import concurrent.futures as cf
 import hashlib
@@ -29,6 +29,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import time
 from urllib.parse import urljoin
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -104,11 +105,16 @@ def parse(path):
     return items
 
 
+# Один канал под разными названиями в разных источниках.
+ALIASES = {"россияк": "культура"}
+
+
 def key(name):
-    """Ключ для склейки одного канала из разных источников."""
+    """Возвращает ключ для склейки одного канала из разных источников."""
     k = name.lower().replace("ё", "е")
     k = re.sub(r"\b(hd|fhd|uhd|4k|tv|тв)\b", "", k)
-    return re.sub(r"[^\wа-я]+", "", k)
+    k = re.sub(r"[^\wа-я]+", "", k)
+    return ALIASES.get(k, k)
 
 
 AUDIO_CODECS = re.compile(r"mp4a|ac-3|ec-3|mp3|opus|\.6b|\.69", re.I)
@@ -327,21 +333,69 @@ def safe(fn, *args):
         return False, 0
 
 
+CACHE_PATH = os.path.join(ROOT, "sources", "probe_cache.json")
+CACHE_FRESH_DAYS = 14
+CACHE_KEEP_DAYS = 60
+# ссылки, поток по которым приложение достаёт само на стике (или официальный RuTube):
+# из-за границы они могут не открываться, но это не значит, что они мёртвые
+RUNTIME = ("okru:", "vitrina:", "vkplay:", "https://bl.rutube.ru/")
+
+
+def load_cache():
+    try:
+        return json.load(open(CACHE_PATH, encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+
+
+def save_cache(cache, now):
+    keep = {k: v for k, v in cache.items() if now - v.get("ts", 0) < CACHE_KEEP_DAYS * 86400}
+    with open(CACHE_PATH, "w", encoding="utf-8") as f:
+        json.dump(keep, f, ensure_ascii=False, indent=0, sort_keys=True)
+
+
 def main():
-    sources = [parse(p) for p in sys.argv[1:]]
+    # --ci: запуск в GitHub Actions (сервер за границей). Потоки только для России оттуда не
+    # открываются, поэтому мёртвым поток не считается, если он недавно работал при запуске
+    # из России (кэш замеров sources/probe_cache.json) или его поток достаётся на стике.
+    ci = "--ci" in sys.argv
+    sources = [parse(p) for p in sys.argv[1:] if not p.startswith("--")]
     flat = [ch for items in sources for ch in items]
+    cache, now = load_cache(), time.time()
     with cf.ThreadPoolExecutor(24) as ex:
         probes = list(ex.map(lambda c: probe(c["url"]), flat))
     for ch, (ok, hls, url) in zip(flat, probes):
+        ch["key"] = stream_id(ch["url"])
+        ch["measured"] = ok
+        cached = cache.get(ch["key"])
+        if not ok and ci:
+            if cached and cached.get("ok") and now - cached["ts"] < CACHE_FRESH_DAYS * 86400:
+                ok, hls, url = True, cached["hls"], cached.get("url", ch["url"])
+            elif ch["url"].startswith(RUNTIME):
+                ok, hls = True, True
         ch["ok"], ch["hls"], ch["url"] = ok, hls, url
         ch["group"] = GROUPS.get(ch["attrs"].get("group-title"), ch["attrs"].get("group-title", "Другие"))
     dead = sorted({c["name"] for c in flat if not c["ok"]})
     alive = [c for c in flat if c["ok"]]
+    measured = [c for c in alive if c["measured"]]
     with cf.ThreadPoolExecutor(16) as ex:
-        info = list(ex.map(lambda c: safe(inspect, c["url"]) if c["hls"] else (False, 0), alive))
-    for ch, (inter, height) in zip(alive, info):
+        info = list(ex.map(lambda c: safe(inspect, c["url"]) if c["hls"] else (False, 0), measured))
+    for ch, (inter, height) in zip(measured, info):
         ch["interlaced"], ch["height"] = inter, height
-    flags = [i for i, _ in info]
+    for ch in alive:
+        if not ch["measured"]:
+            cached = cache.get(ch["key"], {})
+            ch["interlaced"], ch["height"] = cached.get("interlaced", False), cached.get("height", 0)
+    # кэш замеров: из России пишем всё, из CI — только то, что реально открылось
+    for ch in flat:
+        if ch["measured"]:
+            cache[ch["key"]] = {"ok": True, "hls": ch["hls"], "url": ch["url"],
+                                "interlaced": ch.get("interlaced", False),
+                                "height": ch.get("height", 0), "ts": int(now)}
+        elif not ci:
+            cache[ch["key"]] = {"ok": False, "ts": int(now)}
+    save_cache(cache, now)
+    flags = [ch["interlaced"] for ch in alive]
     channels = merge([[c for c in items if c["ok"]] for items in sources])
     # сначала прогрессивные, среди них — лучшее разрешение; при равных — приоритет источника
     demoted = 0
