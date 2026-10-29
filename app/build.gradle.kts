@@ -15,7 +15,15 @@ android {
         versionName = "1.5"
     }
 
+    buildFeatures {
+        buildConfig = true
+    }
+
     buildTypes {
+        debug {
+            // тестовая версия с логами самопроверки (tools/selftest.py); ставится поверх релиза
+            versionNameSuffix = "-debug"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -41,4 +49,8 @@ dependencies {
     implementation("androidx.media3:media3-exoplayer-hls:$media3")
     implementation("androidx.media3:media3-ui:$media3")
     implementation("androidx.recyclerview:recyclerview:1.3.2")
+
+    testImplementation("junit:junit:4.13.2")
+    // в android.jar org.json — заглушки; для JVM-тестов нужна настоящая библиотека
+    testImplementation("org.json:json:20240303")
 }
