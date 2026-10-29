@@ -14,6 +14,8 @@ data class Channel(
     val hls: Boolean,
     /** идентификатор телепрограммы на epg.iptvx.one */
     val epg: String?,
+    /** идентификатор канала на tv.mail.ru */
+    val mailru: String?,
 ) {
     /** стабильный ключ для избранного и недавних: номера при обновлении плейлиста меняются */
     val key: String get() = name.lowercase()
@@ -57,6 +59,7 @@ object Playlist {
                 logo = attrs["x-logo"],
                 hls = attrs["x-hls"] == "1",
                 epg = attrs["x-epg"],
+                mailru = attrs["x-mailru"],
             )
         }
 

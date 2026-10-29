@@ -327,16 +327,17 @@ class MainActivity : Activity() {
 
     /** «Сейчас / Далее» на плашке канала; программу подгружаем, если её ещё нет. */
     private fun showNowNext(ch: Channel) {
-        val id = ch.epg
-        val list = id?.let(Epg::cached)
+        val list = Epg.cached(ch)
         if (list != null) {
             fillNowNext(list)
             return
         }
         infoEpg.visibility = View.GONE
-        if (id == null) return
+        if (!Epg.has(ch)) return
         epgIo.execute {
-            val loaded = runCatching { Epg.load(id) }.getOrNull() ?: return@execute
+            val loaded = runCatching { Epg.load(ch) }
+                .onFailure { Log.w(TAG, "epg failed: ${ch.name}", it) }
+                .getOrNull() ?: return@execute
             handler.post {
                 if (channels[current] == ch && infoBox.visibility == View.VISIBLE) fillNowNext(loaded)
                 channelAdapter.notifyItemRangeChanged(0, channelAdapter.itemCount)
@@ -374,19 +375,20 @@ class MainActivity : Activity() {
         guideAdapter.submit(emptyList(), 0)
         guideList.requestFocus()
 
-        val id = ch.epg
-        if (id == null) {
+        if (!Epg.has(ch)) {
             setGuideStatus(R.string.guide_none)
             return
         }
-        Epg.cached(id)?.let {
+        Epg.cached(ch)?.let {
             fillGuide(it)
             return
         }
         setGuideStatus(R.string.guide_loading)
         val shown = guideIndex
         epgIo.execute {
-            val loaded = runCatching { Epg.load(id) }.getOrNull()
+            val loaded = runCatching { Epg.load(ch) }
+                .onFailure { Log.w(TAG, "epg failed: ${ch.name}", it) }
+                .getOrNull()
             handler.post {
                 if (!guideVisible || guideIndex != shown) return@post
                 when {

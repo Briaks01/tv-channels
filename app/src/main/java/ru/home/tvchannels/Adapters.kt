@@ -63,7 +63,7 @@ class ChannelAdapter(
         holder.placeholder.text = ch.name.take(1)
         holder.name.text = ch.name
         // что идёт сейчас — только если программа уже в памяти, ради сетки ничего не грузим
-        val now = ch.epg?.let(Epg::cached)?.let { Epg.nowAndNext(it).first }
+        val now = Epg.cached(ch)?.let { Epg.nowAndNext(it).first }
         holder.number.text = if (now != null) "${ch.number} · ${now.title}" else ch.number.toString()
         holder.star.visibility = if (ch.key in favorites) View.VISIBLE else View.GONE
         holder.itemView.isActivated = ch.number == playingNumber
