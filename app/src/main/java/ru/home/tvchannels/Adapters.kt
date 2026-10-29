@@ -33,6 +33,7 @@ class ChannelAdapter(
     private val logos: LogoCache,
     private val onPick: (Channel) -> Unit,
     private val onLongPick: (Channel) -> Unit,
+    private val onNeedEpg: (Channel) -> Unit,
 ) : RecyclerView.Adapter<ChannelAdapter.Holder>() {
 
     var items: List<Channel> = emptyList()
@@ -65,10 +66,15 @@ class ChannelAdapter(
         holder.placeholder.visibility = if (bitmap != null) View.GONE else View.VISIBLE
         holder.placeholder.text = ch.name.take(1)
         holder.name.text = ch.name
-        // Показывает текущую передачу, только если телепрограмма уже в памяти.
-        // Ради сетки телепрограмму не загружают.
-        val now = Epg.cached(ch)?.let { Epg.nowAndNext(it).first }
+        // RecyclerView привязывает только видимые и соседние карточки.
+        // Поэтому телепрограмму запрашивают только для них.
+        val programmes = Epg.cached(ch)
+        if (programmes == null && Epg.has(ch)) onNeedEpg(ch)
+        val now = programmes?.let { Epg.nowAndNext(it).first }
         holder.number.text = if (now != null) "${ch.number} · ${now.title}" else ch.number.toString()
+        // Бегущая строка работает только у карточки под фокусом: так процессор не перегружен.
+        holder.number.isSelected = holder.itemView.hasFocus()
+        holder.itemView.setOnFocusChangeListener { _, focused -> holder.number.isSelected = focused }
         holder.star.visibility = if (ch.key in favorites) View.VISIBLE else View.GONE
         holder.itemView.isActivated = ch.number == playingNumber
         holder.itemView.setOnClickListener { onPick(ch) }

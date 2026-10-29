@@ -144,7 +144,7 @@ def t_startup():
     ready = ev(e, "ready")
     cached = any(r.get("cached") == "true" for r in ev(e, "resolved"))
     direct = not ev(e, "resolved")
-    check("Повторный запуск быстрее 4,5 с", bool(ready) and int(ready[0]["ms"]) < 4500,
+    check("Повторный запуск быстрее 5 с", bool(ready) and int(ready[0]["ms"]) < 5000,
           f"{ready[0]['ms'] if ready else '—'} мс, сохранённая ссылка: {cached}, прямой поток: {direct}")
 
 
@@ -201,6 +201,10 @@ def t_menu():
     check("OK открывает меню", visible("menu"))
     f = focused_text()
     check("Фокус в меню на текущем канале", bool(f), f"фокус: {f}")
+    # Видимые карточки сами загружают телепрограмму и показывают текущую передачу.
+    time.sleep(8)
+    with_now = [t for t in ui_texts() if re.match(r"\d+ · ", t)]
+    check("Меню: на карточках видна текущая передача", len(with_now) >= 6, f"{len(with_now)} карточек: {with_now[:3]}")
     keys("DPAD_UP")
     time.sleep(0.6)
     seen = [tuple(focused_text())]

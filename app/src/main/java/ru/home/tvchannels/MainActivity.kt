@@ -20,6 +20,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.common.Format
 import androidx.media3.exoplayer.DecoderReuseEvaluation
+import androidx.media3.exoplayer.DefaultLoadControl
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -93,6 +94,14 @@ class MainActivity : Activity() {
     private val dbgPlayback = Dbg.Playback { channels.getOrNull(current)?.let { "${it.number}:${it.name}" } ?: "?" }
     // Телепрограмму загружают в отдельном потоке. Так она не задерживает запуск видео.
     private val epgIo = Executors.newSingleThreadExecutor()
+    // Телепрограмму карточек меню загружают в два потока. Новые запросы идут первыми:
+    // при быстрой прокрутке сначала грузят карточки на экране.
+    private val gridEpgIo = java.util.concurrent.ThreadPoolExecutor(
+        2, 2, 0L, java.util.concurrent.TimeUnit.MILLISECONDS, LifoQueue(),
+    )
+    private val gridEpgRequested = java.util.Collections.synchronizedSet(HashSet<String>())
+    /** Ключи каналов на экране и рядом. Запрос для другого канала отбрасывают. */
+    @Volatile private var gridNearKeys: Set<String> = emptySet()
 
 
     private val handler = Handler(Looper.getMainLooper())
@@ -167,8 +176,11 @@ class MainActivity : Activity() {
         tabList.itemAnimator = null
 
         logos = LogoCache(assets, RemotePlaylist.logoDir(this))
-        channelAdapter = ChannelAdapter(logos, ::pick, ::toggleFavorite)
+        channelAdapter = ChannelAdapter(logos, ::pick, ::toggleFavorite, ::loadGridEpg)
         grid.layoutManager = GridLayoutManager(this, 3)
+        grid.addOnScrollListener(object : RecyclerView.OnScrollListener() {
+            override fun onScrolled(rv: RecyclerView, dx: Int, dy: Int) = updateGridNearKeys()
+        })
         grid.adapter = channelAdapter
         grid.itemAnimator = null
 
@@ -230,9 +242,20 @@ class MainActivity : Activity() {
         val bandwidth = DefaultBandwidthMeter.Builder(this)
             .setInitialBitrateEstimate(INITIAL_BITRATE)
             .build()
+        // Показ начинают после 1,5 с буфера вместо 2,5 с: канал стартует быстрее.
+        // Остальной буфер по умолчанию защищает звук от затыков.
+        val loadControl = DefaultLoadControl.Builder()
+            .setBufferDurationsMs(
+                DefaultLoadControl.DEFAULT_MIN_BUFFER_MS,
+                DefaultLoadControl.DEFAULT_MAX_BUFFER_MS,
+                START_BUFFER_MS,
+                DefaultLoadControl.DEFAULT_BUFFER_FOR_PLAYBACK_AFTER_REBUFFER_MS,
+            )
+            .build()
         player = ExoPlayer.Builder(this)
             .setTrackSelector(selector)
             .setBandwidthMeter(bandwidth)
+            .setLoadControl(loadControl)
             .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory()))
             .build()
             .also {
@@ -369,6 +392,38 @@ class MainActivity : Activity() {
         }
     }
 
+    /** Обновляет набор каналов на экране и рядом: по 2 ряда сверху и снизу. */
+    private fun updateGridNearKeys() {
+        val lm = grid.layoutManager as GridLayoutManager
+        val first = (lm.findFirstVisibleItemPosition() - 2 * GRID_COLUMNS).coerceAtLeast(0)
+        val last = (lm.findLastVisibleItemPosition() + 2 * GRID_COLUMNS).coerceAtMost(channelAdapter.itemCount - 1)
+        gridNearKeys = if (last < first) emptySet() else (first..last).map { channelAdapter.items[it].key }.toSet()
+    }
+
+    /** Загружает телепрограмму канала для карточки меню и обновляет эту карточку. */
+    private fun loadGridEpg(ch: Channel) {
+        if (!gridEpgRequested.add(ch.key)) return
+        updateGridNearKeys()
+        gridEpgIo.execute {
+            // Меню закрыли или карточку прокрутили далеко: запрос не нужен.
+            if (ch.key !in gridNearKeys) {
+                gridEpgRequested.remove(ch.key)
+                return@execute
+            }
+            val loaded = runCatching { Epg.load(ch) }.getOrNull()
+            Dbg.log("gridEpg", "ch" to ch.number, "ok" to !loaded.isNullOrEmpty())
+            if (loaded.isNullOrEmpty()) {
+                // При следующей привязке карточки запрос повторят.
+                gridEpgRequested.remove(ch.key)
+                return@execute
+            }
+            handler.post {
+                val pos = channelAdapter.items.indexOfFirst { it.key == ch.key }
+                if (pos >= 0) channelAdapter.notifyItemChanged(pos)
+            }
+        }
+    }
+
     private fun showInfo(ch: Channel) {
         infoNumber.text = ch.number.toString()
         infoName.text = ch.name
@@ -410,6 +465,8 @@ class MainActivity : Activity() {
         }
         infoEpg.visibility = View.VISIBLE
         infoNow.visibility = if (now != null) View.VISIBLE else View.GONE
+        // Длинное название текущей передачи бежит строкой.
+        infoNow.isSelected = true
         infoProgress.visibility = infoNow.visibility
         now?.let {
             infoNow.text = getString(R.string.epg_now, timeFormat.format(Date(it.start)), it.title)
@@ -598,6 +655,7 @@ class MainActivity : Activity() {
     }
 
     private fun hideMenu() {
+        gridNearKeys = emptySet()
         menu.visibility = View.GONE
         playerView.requestFocus()
     }
@@ -741,6 +799,7 @@ class MainActivity : Activity() {
         const val MAX_SKIP = 10
         const val STALL_MS = 25_000L
         const val INITIAL_BITRATE = 30_000_000L
+        const val START_BUFFER_MS = 1_500
         const val QUALITY_UP_AFTER_MS = 2_000
         const val QUALITY_DOWN_BELOW_BUFFER_MS = 6_000
         const val BANDWIDTH_FRACTION = 0.9f
