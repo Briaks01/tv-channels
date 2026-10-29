@@ -9,6 +9,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ImageView
 import android.widget.TextView
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
 class LogoCache(private val assets: AssetManager) {
@@ -195,9 +196,14 @@ class GuideAdapter(private val onPick: () -> Unit) : RecyclerView.Adapter<Recycl
                 h.desc.text = p.desc
                 h.desc.visibility = View.GONE
                 // описание раскрываем у передачи под фокусом
-                h.itemView.setOnFocusChangeListener { _, focused ->
+                h.itemView.setOnFocusChangeListener { v, focused ->
                     h.desc.visibility = if (focused && p.desc.isNotEmpty()) View.VISIBLE else View.GONE
                     h.title.maxLines = if (focused) 2 else 1
+                    // строка выросла из-за описания — после раскладки ставим её точно по центру
+                    if (focused) v.post {
+                        val rv = v.parent as? RecyclerView ?: return@post
+                        (rv.layoutManager as? CenteringLayoutManager)?.center(rv, v)
+                    }
                 }
                 h.itemView.setOnClickListener { onPick() }
             }
@@ -205,4 +211,39 @@ class GuideAdapter(private val onPick: () -> Unit) : RecyclerView.Adapter<Recycl
     }
 
     override fun getItemCount() = rows.size
+}
+
+/**
+ * Список, в котором элемент под фокусом всегда стоит по центру, а листается
+ * весь список. Сверху и снизу — отступ в полэкрана, чтобы по центру вставали
+ * и первая, и последняя строки.
+ */
+class CenteringLayoutManager(context: android.content.Context) : LinearLayoutManager(context) {
+
+    override fun requestChildRectangleOnScreen(
+        parent: RecyclerView,
+        child: View,
+        rect: android.graphics.Rect,
+        immediate: Boolean,
+        focusedChildVisible: Boolean,
+    ): Boolean = center(parent, child)
+
+    // прокрутка мгновенная: плавная во время смены фокуса отцепляет строку с фокусом
+    fun center(parent: RecyclerView, child: View): Boolean {
+        val dy = (child.top + child.bottom) / 2 - parent.height / 2
+        if (dy == 0) return false
+        parent.scrollBy(0, dy)
+        return true
+    }
+
+    override fun onAttachedToWindow(view: RecyclerView) {
+        super.onAttachedToWindow(view)
+        view.clipToPadding = false
+        view.addOnLayoutChangeListener { v, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) {
+                val half = (bottom - top) / 2
+                v.setPadding(v.paddingLeft, half, v.paddingRight, half)
+            }
+        }
+    }
 }

@@ -142,7 +142,7 @@ class MainActivity : Activity() {
         guideList = findViewById(R.id.guide_list)
         guideStatus = findViewById(R.id.guide_status)
         guideAdapter = GuideAdapter(::pickFromGuide)
-        guideList.layoutManager = LinearLayoutManager(this)
+        guideList.layoutManager = CenteringLayoutManager(this)
         guideList.adapter = guideAdapter
         guideList.itemAnimator = null
 
@@ -404,8 +404,14 @@ class MainActivity : Activity() {
         setGuideStatus(null)
         val pos = guideAdapter.submit(list, System.currentTimeMillis())
         // текущую передачу ставим чуть ниже верха, чтобы было видно и то, что шло
-        (guideList.layoutManager as LinearLayoutManager).scrollToPositionWithOffset(pos, 200)
-        guideList.post { guideList.findViewHolderForAdapterPosition(pos)?.itemView?.requestFocus() }
+        // текущая передача — сразу по центру, без анимации
+        val lm = guideList.layoutManager as CenteringLayoutManager
+        lm.scrollToPositionWithOffset(pos, guideList.height / 2 - guideList.paddingTop)
+        guideList.post {
+            val v = guideList.findViewHolderForAdapterPosition(pos)?.itemView ?: return@post
+            v.requestFocus()
+            lm.center(guideList, v)
+        }
     }
 
     private fun setGuideStatus(res: Int?) {
