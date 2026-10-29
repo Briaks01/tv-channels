@@ -5,7 +5,7 @@ import android.util.Log
 import java.io.File
 
 /**
- * Скачивает список каналов из репозитория на GitHub.
+ * Скачивает список каналов из репозитория tv-channels-list на GitHub.
  * GitHub Actions пересобирает этот список по расписанию.
  * Приложение скачивает список в фоне и применяет при следующем запуске.
  * Так номера каналов не меняются во время просмотра.
@@ -13,11 +13,11 @@ import java.io.File
  * Список из APK остаётся запасным.
  */
 object RemotePlaylist {
-    private const val PATH = "app/src/main/assets"
+    // Список каналов лежит в отдельном репозитории tv-channels-list.
     private val bases = listOf(
-        "https://raw.githubusercontent.com/Briaks01/tv-channels/main/$PATH",
+        "https://raw.githubusercontent.com/Briaks01/tv-channels-list/main",
         // Зеркало нужно, если провайдер не пропускает raw.githubusercontent.com.
-        "https://cdn.jsdelivr.net/gh/Briaks01/tv-channels@main/$PATH",
+        "https://cdn.jsdelivr.net/gh/Briaks01/tv-channels-list@main",
     )
     private const val MIN_CHANNELS = 100
 
