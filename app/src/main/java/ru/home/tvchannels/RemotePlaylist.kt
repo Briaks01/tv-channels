@@ -5,17 +5,18 @@ import android.util.Log
 import java.io.File
 
 /**
- * Список каналов из репозитория на GitHub: его по расписанию пересобирает
- * GitHub Actions (.github/workflows/update-channels.yml). Скачивается в фоне при
- * запуске и применяется со следующего запуска — чтобы номера не сдвигались посреди
- * просмотра. Логотипы новых каналов, которых нет в APK, докачиваются туда же.
- * Встроенный в APK список остаётся запасным.
+ * Скачивает список каналов из репозитория на GitHub.
+ * GitHub Actions пересобирает этот список по расписанию.
+ * Приложение скачивает список в фоне и применяет при следующем запуске.
+ * Так номера каналов не меняются во время просмотра.
+ * Логотипы новых каналов приложение скачивает в отдельный каталог.
+ * Список из APK остаётся запасным.
  */
 object RemotePlaylist {
     private const val PATH = "app/src/main/assets"
     private val bases = listOf(
         "https://raw.githubusercontent.com/Briaks01/tv-channels/main/$PATH",
-        // зеркало на случай, если raw.githubusercontent.com у провайдера недоступен
+        // Зеркало нужно, если провайдер не пропускает raw.githubusercontent.com.
         "https://cdn.jsdelivr.net/gh/Briaks01/tv-channels@main/$PATH",
     )
     private const val MIN_CHANNELS = 100

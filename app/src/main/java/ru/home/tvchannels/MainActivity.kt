@@ -66,7 +66,7 @@ class MainActivity : Activity() {
     private lateinit var guideStatus: TextView
     private lateinit var guideAdapter: GuideAdapter
     private lateinit var logos: LogoCache
-    /** канал, чья программа открыта (не обязательно тот, что идёт) */
+    /** Номер канала на экране телепрограммы. Этот канал может отличаться от текущего. */
     private var guideIndex = 0
     private lateinit var tabAdapter: TabAdapter
     private lateinit var channelAdapter: ChannelAdapter
@@ -83,11 +83,11 @@ class MainActivity : Activity() {
     private var firstStart = true
     /** декодер видео уже получил данные текущего потока */
     private var videoFed = false
-    /** номер попытки запуска потока — чтобы отбросить устаревший фоновый ответ */
+    /** Номер попытки запуска потока. По номеру отбрасывают ответ для прежнего канала. */
     private var streamAttempt = 0
     private val io = Executors.newSingleThreadExecutor()
     private val dbgPlayback = Dbg.Playback { channels.getOrNull(current)?.let { "${it.number}:${it.name}" } ?: "?" }
-    // программа грузится отдельно, чтобы не задерживать запуск потоков
+    // Телепрограмму загружают в отдельном потоке. Так она не задерживает запуск видео.
     private val epgIo = Executors.newSingleThreadExecutor()
 
 
@@ -95,7 +95,7 @@ class MainActivity : Activity() {
     private val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
     private val hideInfo = Runnable { infoBox.visibility = View.GONE }
     private val retry = Runnable { startStream() }
-    // поток может «молча» зависнуть без ошибки — тогда считаем его упавшим сами
+    // Поток может зависнуть без ошибки. Тогда сторож объявляет ошибку сам.
     private val stallWatchdog = Runnable {
         Log.w(TAG, "stalled: ${channels[current].name} url#$urlIndex")
         Dbg.log("watchdog", "kind" to "stall", "ch" to channels[current].number, "url#" to urlIndex)
@@ -118,7 +118,7 @@ class MainActivity : Activity() {
     private val applyDigits = Runnable {
         digits.toIntOrNull()?.let { n ->
             val idx = channels.indexOfFirst { it.number == n }
-            // набранный номер идущего канала не перезапускает его
+            // Номер текущего канала поток не перезапускает.
             if (idx == current && isPlaying) showInfo(channels[current]) else if (idx >= 0) play(idx)
         }
         digits = ""
@@ -130,7 +130,7 @@ class MainActivity : Activity() {
         Dbg.watchMainThread()
         prefs = Prefs(this)
         allChannels = Playlist.load(this)
-        // свежий список с GitHub — в фоне, применится со следующего запуска
+        // Свежий список с GitHub скачивают в фоне. Приложение применяет его при следующем запуске.
         epgIo.execute { runCatching { RemotePlaylist.refresh(applicationContext) } }
 
         playerView = findViewById(R.id.player_view)
@@ -314,7 +314,8 @@ class MainActivity : Activity() {
         dbgPlayback.started(url)
         Dbg.log("start", "ch" to "${ch.number}:${ch.name}", "url#" to urlIndex, "of" to ch.urls.size, "attempt" to attempt)
         if (Resolvers.needsResolve(url)) {
-            // ссылку на поток (OK.ru, «Витрина») достаём в фоне; устаревший ответ — канал уже сменили — отбрасываем
+            // Ссылку на поток OK.ru, «Витрины» и VK Play получают в фоне.
+            // Если канал уже сменили, ответ отбрасывают.
             p.stop()
             setStatus(getString(R.string.loading))
             io.execute {
@@ -558,7 +559,7 @@ class MainActivity : Activity() {
         channelAdapter.favorites = prefs.favorites
         showTab(TAB_RECENT)
         tabList.scrollToPosition(TAB_RECENT)
-        // первым в «Недавних» стоит текущий канал, фокус — на предыдущем
+        // Первым в «Недавних» стоит текущий канал. Фокус ставят на второй элемент.
         val pos = if (channelAdapter.itemCount > 1) 1 else 0
         grid.post {
             grid.findViewHolderForAdapterPosition(pos)?.itemView?.requestFocus() ?: grid.requestFocus()
@@ -588,7 +589,7 @@ class MainActivity : Activity() {
         }
     }
 
-    /** Из верхнего ряда сетки «вверх» ведёт на выбранную вкладку, а не на ту, что над карточкой. */
+    /** Переводит фокус из верхнего ряда сетки на текущую вкладку, а не на вкладку над карточкой. */
     private fun focusSelectedTab(): Boolean {
         val tab = tabAdapter.selected
         val view = tabList.findViewHolderForAdapterPosition(tab)?.itemView
@@ -617,7 +618,7 @@ class MainActivity : Activity() {
                 KeyEvent.KEYCODE_DPAD_LEFT -> showGuide(guideIndex - 1)
                 KeyEvent.KEYCODE_DPAD_RIGHT -> showGuide(guideIndex + 1)
                 KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> {
-                    // пустая программа — OK просто включает канал
+                    // Если телепрограммы нет, кнопка OK включает канал.
                     if (guideAdapter.itemCount == 0) pickFromGuide() else return super.dispatchKeyEvent(event)
                 }
                 else -> return super.dispatchKeyEvent(event)
@@ -661,17 +662,16 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER,
             KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MENU -> showMenu()
 
-            // каналы листаются боковыми кнопками, вверх/вниз — дополнительные действия
-            // автоповтор пульта (кнопку чуть придержали) каналы не листает: одно нажатие — один канал
+            // Кнопки «вправо» и «влево» меняют канал. Кнопки «вверх» и «вниз» открывают экраны.
+            // Автоповтор пульта канал не меняет. Одно нажатие меняет канал один раз.
             KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_CHANNEL_UP -> if (event.repeatCount == 0) move(+1)
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_CHANNEL_DOWN -> if (event.repeatCount == 0) move(-1)
 
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_GUIDE -> showGuide(current)
 
-            // «вниз» — к предыдущему просмотренному каналу, как кнопка «↺» на пультах приставок
-            // «вниз» — список недавних каналов, фокус на предыдущем
             KeyEvent.KEYCODE_DPAD_DOWN -> showRecent()
 
+            // Кнопка LAST_CHANNEL возвращает прошлый канал, как кнопка «↺» на пультах приставок.
             KeyEvent.KEYCODE_LAST_CHANNEL -> {
                 val prevKey = prefs.recent.getOrNull(1)
                 val idx = channels.indexOfFirst { it.key == prevKey }
@@ -713,7 +713,7 @@ class MainActivity : Activity() {
         const val QUALITY_UP_AFTER_MS = 2_000
         const val QUALITY_DOWN_BELOW_BUFFER_MS = 6_000
         const val BANDWIDTH_FRACTION = 0.9f
-        // отсчёт от прихода формата видео, а он известен раньше, чем скачан первый HD-сегмент
+        // Отсчёт идёт от прихода формата видео. Формат приходит раньше первого сегмента HD.
         const val FIRST_FRAME_MS = 12_000L
         const val TAG = "TVChannels"
     }

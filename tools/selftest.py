@@ -6,8 +6,8 @@
     adb -s 192.168.1.107:5555 install -r app/build/outputs/apk/debug/app-debug.apk
 
 Запуск: python3 -I tools/selftest.py [--quick] [--soak СЕКУНД]
---quick — без прогона всех федеральных каналов; --soak — сколько секунд
-слушать один канал на предмет затыков звука (по умолчанию 120).
+Ключ --quick пропускает каналы 1–20.
+Ключ --soak задаёт время прослушивания одного канала в секундах. По умолчанию 120.
 """
 import re
 import subprocess
@@ -157,7 +157,7 @@ def t_zapping():
     zap("DPAD_RIGHT", 5, 0.35, "Вправо 5 раз подряд")
     zap("DPAD_LEFT", 5, 0.35, "Влево 5 раз подряд")
     zap("DPAD_RIGHT", 4, 0.05, "Вправо 4 раза очень быстро")
-    # придержанная кнопка: пульт шлёт автоповтор — это должно быть одно переключение
+    # Если кнопку придержать, пульт шлёт автоповтор. Приложение при этом меняет канал один раз.
     close_overlays()
     clear_log()
     longpress("DPAD_RIGHT")
@@ -235,7 +235,7 @@ def t_recent():
 
 def t_guide():
     close_overlays()
-    digits(13)  # у СТС программа с Mail.ru точно есть
+    digits(13)  # У СТС есть телепрограмма Mail.ru.
     time.sleep(4)
     clear_log()
     keys("DPAD_UP")
@@ -261,7 +261,7 @@ def t_guide():
     keys("DPAD_CENTER")
     time.sleep(3)
     check("Программа: OK включает канал", not visible("guide") and bool(ev(st_events(), "start")))
-    # канал без Mail.ru: программа с iptvx не должна висеть на «Загружаю…»
+    # У канала нет телепрограммы Mail.ru. Экран телепрограммы не должен ждать iptvx долго.
     close_overlays()
     digits(204)
     time.sleep(4)

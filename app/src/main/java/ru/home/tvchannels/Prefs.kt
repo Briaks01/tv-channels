@@ -2,7 +2,7 @@ package ru.home.tvchannels
 
 import android.content.Context
 
-/** Настройки и списки «Недавние» / «Избранное». */
+/** Хранит настройки, «Недавние» и «Избранное». */
 class Prefs(context: Context) {
     private val sp = context.getSharedPreferences("tv", Context.MODE_PRIVATE)
 
@@ -31,7 +31,7 @@ class Prefs(context: Context) {
         get() = sp.getBoolean("skip_dead", true)
         set(v) = sp.edit().putBoolean("skip_dead", v).apply()
 
-    /** 0 — выключен */
+    /** Значение 0 выключает таймер сна. */
     var sleepMinutes: Int
         get() = sp.getInt("sleep_minutes", 0)
         set(v) = sp.edit().putInt("sleep_minutes", v).apply()

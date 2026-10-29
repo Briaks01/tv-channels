@@ -19,7 +19,7 @@ class LogoCache(private val assets: AssetManager, private val downloaded: java.i
     fun get(name: String?): Bitmap? {
         if (name == null || name in missing) return null
         cache.get(name)?.let { return it }
-        // сначала встроенные в APK, потом докачанные с GitHub для новых каналов
+        // Сначала ищет логотип в APK, затем в каталоге логотипов с GitHub.
         val bitmap = runCatching {
             assets.open("logos/$name.png").use(BitmapFactory::decodeStream)
         }.getOrNull() ?: java.io.File(downloaded, "$name.png").takeIf { it.exists() }
@@ -65,7 +65,8 @@ class ChannelAdapter(
         holder.placeholder.visibility = if (bitmap != null) View.GONE else View.VISIBLE
         holder.placeholder.text = ch.name.take(1)
         holder.name.text = ch.name
-        // что идёт сейчас — только если программа уже в памяти, ради сетки ничего не грузим
+        // Показывает текущую передачу, только если телепрограмма уже в памяти.
+        // Ради сетки телепрограмму не загружают.
         val now = Epg.cached(ch)?.let { Epg.nowAndNext(it).first }
         holder.number.text = if (now != null) "${ch.number} · ${now.title}" else ch.number.toString()
         holder.star.visibility = if (ch.key in favorites) View.VISIBLE else View.GONE
@@ -87,8 +88,8 @@ class TabAdapter(
 
     private var recycler: RecyclerView? = null
 
-    // Подсветку меняем прямо на видимых элементах: notifyItemChanged во время
-    // прокрутки к следующей вкладке ломает поиск фокуса, и он улетает в никуда.
+    // Подсветку меняют прямо на видимых элементах. Вызов notifyItemChanged
+    // во время прокрутки к следующей вкладке ломает поиск фокуса.
     var selected = 0
         set(value) {
             field = value
@@ -117,8 +118,8 @@ class TabAdapter(
         val tab = tabs[position]
         holder.text.text = tab.title
         holder.text.isActivated = position == selected
-        // как в Триколоре: категория переключается, как только на неё встал фокус;
-        // вкладки-действия срабатывают только по OK
+        // Как в Триколоре: фокус на вкладке сразу включает её категорию.
+        // Вкладку-действие включает только кнопка OK.
         holder.text.setOnFocusChangeListener { _, hasFocus ->
             val pos = holder.bindingAdapterPosition
             if (hasFocus && tab.action == null && pos != RecyclerView.NO_POSITION && pos != selected) {
@@ -216,9 +217,9 @@ class GuideAdapter(private val onPick: () -> Unit) : RecyclerView.Adapter<Recycl
 }
 
 /**
- * Список, в котором элемент под фокусом всегда стоит по центру, а листается
- * весь список. Сверху и снизу — отступ в полэкрана, чтобы по центру вставали
- * и первая, и последняя строки.
+ * Держит элемент под фокусом в центре списка и прокручивает весь список.
+ * Сверху и снизу добавляет отступ в половину высоты. Так в центр
+ * встают первая и последняя строки.
  */
 class CenteringLayoutManager(context: android.content.Context) : LinearLayoutManager(context) {
 
