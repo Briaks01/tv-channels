@@ -31,6 +31,7 @@ class SettingsActivity : Activity() {
             packageManager.getPackageInfo(packageName, 0).versionName,
             channels.size,
             channels.count { it.urls.size > 1 },
+            Playlist.source,
         )
 
         val rows = listOf(

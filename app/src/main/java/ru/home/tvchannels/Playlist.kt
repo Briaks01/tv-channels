@@ -32,14 +32,30 @@ object Playlist {
      * Плейлист из внешней папки приложения имеет приоритет над встроенным:
      * так каналы можно обновить через `adb push` без пересборки.
      */
+    /** Откуда взят текущий список — для экрана настроек. */
+    var source = "APK"
+        private set
+
+    /**
+     * Порядок: файл, положенный через adb push (для отладки), затем список,
+     * скачанный с GitHub при прошлом запуске, затем встроенный в APK.
+     */
     fun load(context: Context): List<Channel> {
         val override = context.getExternalFilesDir(null)?.let { File(it, FILE_NAME) }
-        val text = if (override != null && override.canRead()) {
-            override.readText()
-        } else {
-            context.assets.open(FILE_NAME).bufferedReader().use { it.readText() }
+        val remote = RemotePlaylist.file(context)
+        val (text, from) = when {
+            override != null && override.canRead() -> override.readText() to "adb"
+            remote.canRead() -> remote.readText() to "GitHub"
+            else -> context.assets.open(FILE_NAME).bufferedReader().use { it.readText() } to "APK"
         }
-        return parse(text)
+        val list = parse(text)
+        // битый файл не должен оставить без каналов
+        if (list.isEmpty() && from != "APK") {
+            source = "APK"
+            return parse(context.assets.open(FILE_NAME).bufferedReader().use { it.readText() })
+        }
+        source = from
+        return list
     }
 
     fun parse(text: String): List<Channel> {

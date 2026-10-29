@@ -23,7 +23,9 @@ import androidx.media3.exoplayer.DecoderReuseEvaluation
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.analytics.AnalyticsListener
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import androidx.media3.exoplayer.trackselection.AdaptiveTrackSelection
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector
+import androidx.media3.exoplayer.upstream.DefaultBandwidthMeter
 import androidx.media3.exoplayer.util.EventLogger
 import androidx.media3.ui.PlayerView
 import androidx.recyclerview.widget.GridLayoutManager
@@ -84,6 +86,7 @@ class MainActivity : Activity() {
     /** номер попытки запуска потока — чтобы отбросить устаревший фоновый ответ */
     private var streamAttempt = 0
     private val io = Executors.newSingleThreadExecutor()
+    private val dbgPlayback = Dbg.Playback { channels.getOrNull(current)?.let { "${it.number}:${it.name}" } ?: "?" }
     // программа грузится отдельно, чтобы не задерживать запуск потоков
     private val epgIo = Executors.newSingleThreadExecutor()
 
@@ -95,6 +98,7 @@ class MainActivity : Activity() {
     // поток может «молча» зависнуть без ошибки — тогда считаем его упавшим сами
     private val stallWatchdog = Runnable {
         Log.w(TAG, "stalled: ${channels[current].name} url#$urlIndex")
+        Dbg.log("watchdog", "kind" to "stall", "ch" to channels[current].number, "url#" to urlIndex)
         player?.stop()
         streamFailed()
     }
@@ -102,10 +106,14 @@ class MainActivity : Activity() {
     private val frameWatchdog = Runnable {
         if (!videoFed) return@Runnable
         Log.w(TAG, "no frames: ${channels[current].name} url#$urlIndex")
+        Dbg.log("watchdog", "kind" to "noframes", "ch" to channels[current].number, "url#" to urlIndex)
         player?.stop()
         streamFailed()
     }
-    private val skipDead = Runnable { move(moveDir) }
+    private val skipDead = Runnable {
+        Dbg.log("autoskip", "dir" to moveDir)
+        move(moveDir)
+    }
     private val sleep = Runnable { finish() }
     private val applyDigits = Runnable {
         digits.toIntOrNull()?.let { n ->
@@ -119,8 +127,11 @@ class MainActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        Dbg.watchMainThread()
         prefs = Prefs(this)
         allChannels = Playlist.load(this)
+        // свежий список с GitHub — в фоне, применится со следующего запуска
+        epgIo.execute { runCatching { RemotePlaylist.refresh(applicationContext) } }
 
         playerView = findViewById(R.id.player_view)
         infoBox = findViewById(R.id.info_box)
@@ -150,7 +161,7 @@ class MainActivity : Activity() {
         // без анимации изменения элемент не пересоздаётся и не теряет фокус
         tabList.itemAnimator = null
 
-        logos = LogoCache(assets)
+        logos = LogoCache(assets, RemotePlaylist.logoDir(this))
         channelAdapter = ChannelAdapter(logos, ::pick, ::toggleFavorite)
         grid.layoutManager = GridLayoutManager(this, 3)
         grid.adapter = channelAdapter
@@ -196,20 +207,35 @@ class MainActivity : Activity() {
         // после возврата из настроек списки и вкладки могли измениться
         if (firstStart) firstStart = false else applySettings()
 
-        val selector = DefaultTrackSelector(this)
-        val maxHeight = prefs.maxHeight
-        selector.setParameters(
-            if (maxHeight > 0) selector.buildUponParameters().setMaxVideoSize(Int.MAX_VALUE, maxHeight)
-            // «Авто» — сразу лучшее качество, а не разгон с низкого
-            else selector.buildUponParameters().setForceHighestSupportedBitrate(true)
+        // Адаптацию качества делают осторожной. Смена варианта потока даёт щелчок звука,
+        // поэтому качество снижают, только если в буфере осталось меньше 6 с.
+        val adaptive = AdaptiveTrackSelection.Factory(
+            QUALITY_UP_AFTER_MS,
+            QUALITY_DOWN_BELOW_BUFFER_MS,
+            QUALITY_DOWN_BELOW_BUFFER_MS,
+            BANDWIDTH_FRACTION,
         )
+        val selector = DefaultTrackSelector(this, adaptive)
+        val maxHeight = prefs.maxHeight
+        if (maxHeight > 0) {
+            selector.setParameters(selector.buildUponParameters().setMaxVideoSize(Int.MAX_VALUE, maxHeight))
+        }
+        // стартуем сразу с лучшего качества (высокая начальная оценка скорости сети),
+        // но при просадке плеер может опуститься ниже — иначе звук и видео встают на подгрузку
+        val bandwidth = DefaultBandwidthMeter.Builder(this)
+            .setInitialBitrateEstimate(INITIAL_BITRATE)
+            .build()
         player = ExoPlayer.Builder(this)
             .setTrackSelector(selector)
+            .setBandwidthMeter(bandwidth)
             .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory()))
             .build()
             .also {
                 it.addListener(playerListener)
-                it.addAnalyticsListener(EventLogger(TAG))
+                if (Dbg.on) {
+                    it.addAnalyticsListener(EventLogger(TAG))
+                    it.addAnalyticsListener(dbgPlayback)
+                }
                 it.addAnalyticsListener(object : AnalyticsListener {
                     override fun onVideoInputFormatChanged(
                         eventTime: AnalyticsListener.EventTime,
@@ -251,10 +277,11 @@ class MainActivity : Activity() {
 
     private fun move(step: Int) {
         moveDir = step
+        Dbg.log("move", "step" to step, "from" to current + 1, "skipped" to skipped)
         play(current + step, keepDir = true)
     }
 
-    private fun play(index: Int, keepDir: Boolean = false) {
+    private fun play(index: Int, keepDir: Boolean = false) = Dbg.timed("play") {
         if (!keepDir) {
             moveDir = 0
             skipped = 0
@@ -284,6 +311,8 @@ class MainActivity : Activity() {
         val attempt = ++streamAttempt
 
         val url = ch.urls[urlIndex]
+        dbgPlayback.started(url)
+        Dbg.log("start", "ch" to "${ch.number}:${ch.name}", "url#" to urlIndex, "of" to ch.urls.size, "attempt" to attempt)
         if (Resolvers.needsResolve(url)) {
             // ссылку на поток (OK.ru, «Витрина») достаём в фоне; устаревший ответ — канал уже сменили — отбрасываем
             p.stop()
@@ -293,6 +322,7 @@ class MainActivity : Activity() {
                     .onFailure { Log.w(TAG, "resolve failed: $url", it) }
                     .getOrNull()
                 handler.post {
+                    Dbg.log("resolved", "ok" to (stream != null), "stale" to (attempt != streamAttempt))
                     if (attempt != streamAttempt || player !== p) return@post
                     if (stream == null) streamFailed() else load(p, stream, hls = true)
                 }
@@ -366,6 +396,7 @@ class MainActivity : Activity() {
     private val guideVisible get() = guide.visibility == View.VISIBLE
 
     private fun showGuide(index: Int) {
+        Dbg.log("guide", "ch" to (index + channels.size) % channels.size + 1)
         guideIndex = (index + channels.size) % channels.size
         val ch = channels[guideIndex]
         guide.visibility = View.VISIBLE
@@ -452,6 +483,8 @@ class MainActivity : Activity() {
     }
 
     private fun streamFailed() {
+        Dbg.log("failed", "ch" to channels[current].number, "url#" to urlIndex, "retried" to retried,
+            "moveDir" to moveDir, "skipped" to skipped)
         handler.removeCallbacks(stallWatchdog)
         handler.removeCallbacks(frameWatchdog)
         val ch = channels[current]
@@ -508,6 +541,7 @@ class MainActivity : Activity() {
     }
 
     private fun showMenu() {
+        Dbg.log("menu", "open" to true)
         menu.visibility = View.VISIBLE
         channelAdapter.favorites = prefs.favorites
         // открываем ту вкладку, где был в прошлый раз; если там нет текущего канала — «Все каналы»
@@ -516,6 +550,19 @@ class MainActivity : Activity() {
         showTab(tab)
         tabList.scrollToPosition(tab)
         focusChannel(current)
+    }
+
+    private fun showRecent() {
+        Dbg.log("menu", "open" to "recent")
+        menu.visibility = View.VISIBLE
+        channelAdapter.favorites = prefs.favorites
+        showTab(TAB_RECENT)
+        tabList.scrollToPosition(TAB_RECENT)
+        // первым в «Недавних» стоит текущий канал, фокус — на предыдущем
+        val pos = if (channelAdapter.itemCount > 1) 1 else 0
+        grid.post {
+            grid.findViewHolderForAdapterPosition(pos)?.itemView?.requestFocus() ?: grid.requestFocus()
+        }
     }
 
     private fun hideMenu() {
@@ -560,6 +607,7 @@ class MainActivity : Activity() {
     // ---- пульт ----
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        Dbg.key(event, if (guideVisible) "guide" else if (menuVisible) "menu" else "tv")
         if (event.action != KeyEvent.ACTION_DOWN) return super.dispatchKeyEvent(event)
         val code = event.keyCode
 
@@ -614,13 +662,17 @@ class MainActivity : Activity() {
             KeyEvent.KEYCODE_NUMPAD_ENTER, KeyEvent.KEYCODE_MENU -> showMenu()
 
             // каналы листаются боковыми кнопками, вверх/вниз — дополнительные действия
-            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_CHANNEL_UP -> move(+1)
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_CHANNEL_DOWN -> move(-1)
+            // автоповтор пульта (кнопку чуть придержали) каналы не листает: одно нажатие — один канал
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_CHANNEL_UP -> if (event.repeatCount == 0) move(+1)
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_CHANNEL_DOWN -> if (event.repeatCount == 0) move(-1)
 
             KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_GUIDE -> showGuide(current)
 
             // «вниз» — к предыдущему просмотренному каналу, как кнопка «↺» на пультах приставок
-            KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_LAST_CHANNEL -> {
+            // «вниз» — список недавних каналов, фокус на предыдущем
+            KeyEvent.KEYCODE_DPAD_DOWN -> showRecent()
+
+            KeyEvent.KEYCODE_LAST_CHANNEL -> {
                 val prevKey = prefs.recent.getOrNull(1)
                 val idx = channels.indexOfFirst { it.key == prevKey }
                 if (idx >= 0) play(idx) else showInfo(channels[current])
@@ -651,11 +703,16 @@ class MainActivity : Activity() {
 
     companion object {
         const val REGIONAL = "Региональные"
+        const val TAB_RECENT = 0
         const val TAB_FAVORITES = 1
         const val TAB_ALL = 2
         const val GRID_COLUMNS = 3
         const val MAX_SKIP = 10
         const val STALL_MS = 25_000L
+        const val INITIAL_BITRATE = 30_000_000L
+        const val QUALITY_UP_AFTER_MS = 2_000
+        const val QUALITY_DOWN_BELOW_BUFFER_MS = 6_000
+        const val BANDWIDTH_FRACTION = 0.9f
         // отсчёт от прихода формата видео, а он известен раньше, чем скачан первый HD-сегмент
         const val FIRST_FRAME_MS = 12_000L
         const val TAG = "TVChannels"

@@ -12,16 +12,18 @@ import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 
-class LogoCache(private val assets: AssetManager) {
+class LogoCache(private val assets: AssetManager, private val downloaded: java.io.File) {
     private val cache = LruCache<String, Bitmap>(80)
     private val missing = HashSet<String>()
 
     fun get(name: String?): Bitmap? {
         if (name == null || name in missing) return null
         cache.get(name)?.let { return it }
+        // сначала встроенные в APK, потом докачанные с GitHub для новых каналов
         val bitmap = runCatching {
             assets.open("logos/$name.png").use(BitmapFactory::decodeStream)
-        }.getOrNull()
+        }.getOrNull() ?: java.io.File(downloaded, "$name.png").takeIf { it.exists() }
+            ?.let { BitmapFactory.decodeFile(it.path) }
         if (bitmap == null) missing += name else cache.put(name, bitmap)
         return bitmap
     }

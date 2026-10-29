@@ -29,11 +29,25 @@ object Resolvers {
         else -> url
     }
 
-    internal fun fetch(url: String, referer: String? = null): String? {
+    internal fun fetchBytes(url: String, timeoutMs: Int = 8_000): ByteArray? {
         val conn = URL(url).openConnection() as HttpURLConnection
         return try {
-            conn.connectTimeout = 10_000
-            conn.readTimeout = 10_000
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
+            conn.setRequestProperty("User-Agent", USER_AGENT)
+            if (conn.responseCode == 200) conn.inputStream.use { it.readBytes() } else null
+        } catch (e: java.io.IOException) {
+            null
+        } finally {
+            conn.disconnect()
+        }
+    }
+
+    internal fun fetch(url: String, referer: String? = null, timeoutMs: Int = 10_000): String? {
+        val conn = URL(url).openConnection() as HttpURLConnection
+        return try {
+            conn.connectTimeout = timeoutMs
+            conn.readTimeout = timeoutMs
             conn.setRequestProperty("User-Agent", USER_AGENT)
             if (referer != null) conn.setRequestProperty("Referer", referer)
             val code = conn.responseCode

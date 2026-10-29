@@ -14,7 +14,7 @@
     <string name="fav_added">«%1$s» добавлен в избранное</string>
     <string name="fav_removed">«%1$s» убран из избранного</string>
     <string name="settings_title">Настройки</string>
-    <string name="settings_footer">ТВ Каналы %1$s · каналов: %2$d, с запасным потоком: %3$d</string>
+    <string name="settings_footer">ТВ Каналы %1$s · каналов: %2$d, с запасным потоком: %3$d · список: %4$s</string>
     <string name="set_start">При запуске включать</string>
     <string name="start_last">Последний канал</string>
     <string name="start_first">Первый канал</string>
