@@ -3,18 +3,20 @@
 
 Нужна отладочная сборка (логи с тегом ST пишутся только в ней):
     ANDROID_HOME=~/Android/Sdk ./gradlew assembleDebug
-    adb -s 192.168.1.107:5555 install -r app/build/outputs/apk/debug/app-debug.apk
+    adb -s $TV_STICK install -r app/build/outputs/apk/debug/app-debug.apk
 
 Запуск: python3 -I tools/selftest.py [--quick] [--soak СЕКУНД]
 Ключ --quick пропускает каналы 1–20.
 Ключ --soak задаёт время прослушивания одного канала в секундах. По умолчанию 120.
 """
+import os
 import re
 import subprocess
 import sys
 import time
 
-DEVICE = "192.168.1.107:5555"
+# Адрес стика для ADB, например 192.168.1.50:5555.
+DEVICE = os.environ.get("TV_STICK", "")
 PKG = "ru.home.tvchannels"
 ACT = f"{PKG}/.MainActivity"
 
@@ -341,6 +343,8 @@ def t_soak(seconds, channel):
 def main():
     quick = "--quick" in sys.argv
     soak = int(sys.argv[sys.argv.index("--soak") + 1]) if "--soak" in sys.argv else 120
+    if not DEVICE:
+        sys.exit("Адрес стика не задан. Задайте переменную TV_STICK, например TV_STICK=192.168.1.50:5555.")
     adb("connect", DEVICE)
     if "-debug" not in sh(f"dumpsys package {PKG} | grep -m1 versionName"):
         sys.exit("нужна отладочная сборка (versionName …-debug)")

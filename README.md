@@ -65,16 +65,22 @@
    ANDROID_HOME=~/Android/Sdk ./gradlew assembleRelease
    ```
 
-3. Подключитесь к стику по ADB (отладочный мост Android):
+3. Включите на стике отладку по сети. Запишите адрес стика в переменную:
 
    ```bash
-   adb connect 192.168.1.107:5555
+   export TV_STICK=192.168.1.50:5555
    ```
 
-4. Установите приложение:
+4. Подключитесь к стику по ADB (отладочный мост Android):
 
    ```bash
-   adb -s 192.168.1.107:5555 install -r app/build/outputs/apk/release/app-release.apk
+   adb connect $TV_STICK
+   ```
+
+5. Установите приложение:
+
+   ```bash
+   adb -s $TV_STICK install -r app/build/outputs/apk/release/app-release.apk
    ```
 
 ## Список каналов
@@ -227,7 +233,7 @@ python3 -I -m unittest discover -s tools/tests
 2. Установите её на стик:
 
    ```bash
-   adb -s 192.168.1.107:5555 install -r app/build/outputs/apk/debug/app-debug.apk
+   adb -s $TV_STICK install -r app/build/outputs/apk/debug/app-debug.apk
    ```
 
 3. Запустите самопроверку:
