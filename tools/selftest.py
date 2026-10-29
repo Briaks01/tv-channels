@@ -96,11 +96,14 @@ def current_channel(events):
     return int(starts[-1]["ch"].split(":")[0]) if starts else None
 
 
-def fresh_start():
+def fresh_start(limit=20):
+    """Перезапускает приложение и ждёт первого кадра не дольше limit секунд."""
     sh(f"am force-stop {PKG}")
     clear_log()
     sh(f"am start -n {ACT}")
-    time.sleep(10)
+    started = time.time()
+    while time.time() - started < limit and not ev(st_events(), "ready"):
+        time.sleep(1)
 
 
 class NotOurScreen(Exception):
@@ -131,7 +134,8 @@ def t_startup():
     fresh_start()
     e = st_events()
     ready = ev(e, "ready")
-    check("Запуск: канал стартует", bool(ready),
+    # Каналы «Витрины» стартуют дольше: ссылку на поток получают двумя запросами.
+    check("Запуск: канал стартует быстрее 15 с", bool(ready) and int(ready[0]["ms"]) < 15000,
           f"канал {current_channel(e)}, до первого кадра {ready[0]['ms']} мс" if ready else "нет события ready")
     check("Запуск: нет крэша", "FATAL" not in sh("logcat -d -b crash"))
 
