@@ -86,6 +86,10 @@ class MainActivity : Activity() {
     /** Номер попытки запуска потока. По номеру отбрасывают ответ для прежнего канала. */
     private var streamAttempt = 0
     private val io = Executors.newSingleThreadExecutor()
+    // Ссылки соседних каналов получают в отдельном потоке. Так они не задерживают текущий канал.
+    private val prefetchIo = Executors.newSingleThreadExecutor()
+    /** Текущая попытка запустила поток по сохранённой ссылке. */
+    private var fromCache = false
     private val dbgPlayback = Dbg.Playback { channels.getOrNull(current)?.let { "${it.number}:${it.name}" } ?: "?" }
     // Телепрограмму загружают в отдельном потоке. Так она не задерживает запуск видео.
     private val epgIo = Executors.newSingleThreadExecutor()
@@ -128,6 +132,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
         Dbg.watchMainThread()
+        Resolvers.init(applicationContext)
         prefs = Prefs(this)
         allChannels = Playlist.load(this)
         // Свежий список с GitHub скачивают в фоне. Приложение применяет его при следующем запуске.
@@ -313,7 +318,14 @@ class MainActivity : Activity() {
         val url = ch.urls[urlIndex]
         dbgPlayback.started(url)
         Dbg.log("start", "ch" to "${ch.number}:${ch.name}", "url#" to urlIndex, "of" to ch.urls.size, "attempt" to attempt)
-        if (Resolvers.needsResolve(url)) {
+        fromCache = false
+        val saved = if (Resolvers.needsResolve(url)) Resolvers.cached(url) else null
+        if (saved != null) {
+            // Сохранённая ссылка запускает поток сразу, без запроса в сеть.
+            fromCache = true
+            Dbg.log("resolved", "ok" to true, "cached" to true)
+            load(p, saved, hls = true)
+        } else if (Resolvers.needsResolve(url)) {
             // Ссылку на поток OK.ru, «Витрины» и VK Play получают в фоне.
             // Если канал уже сменили, ответ отбрасывают.
             p.stop()
@@ -343,6 +355,19 @@ class MainActivity : Activity() {
 
     private val isPlaying: Boolean
         get() = player?.let { it.playbackState == Player.STATE_READY || it.playbackState == Player.STATE_BUFFERING } == true
+
+    /** Заранее получает ссылки на поток для соседних каналов. Тогда переключение на них быстрое. */
+    private fun prefetchNeighbours() {
+        for (step in intArrayOf(+1, -1)) {
+            val ch = channels[(current + step + channels.size) % channels.size]
+            val url = ch.urls.first()
+            if (!Resolvers.needsResolve(url) || Resolvers.cached(url) != null) continue
+            prefetchIo.execute {
+                val ok = runCatching { Resolvers.resolve(url) }.getOrNull() != null
+                Dbg.log("prefetch", "ch" to ch.number, "ok" to ok)
+            }
+        }
+    }
 
     private fun showInfo(ch: Channel) {
         infoNumber.text = ch.number.toString()
@@ -472,6 +497,7 @@ class MainActivity : Activity() {
                     retried = false
                     skipped = 0
                     moveDir = 0
+                    prefetchNeighbours()
                 }
                 else -> Unit
             }
@@ -490,19 +516,24 @@ class MainActivity : Activity() {
         handler.removeCallbacks(frameWatchdog)
         val ch = channels[current]
         when {
-            // сначала перебираем запасные ссылки
+            // Сохранённая ссылка могла устареть раньше срока. Её удаляют и получают свежую.
+            fromCache -> {
+                Resolvers.invalidate(ch.urls[urlIndex])
+                startStream()
+            }
+            // Затем перебирают запасные ссылки.
             urlIndex + 1 < ch.urls.size -> {
                 urlIndex++
                 startStream()
             }
-            // поток мог моргнуть — пробуем ещё раз с начала
+            // Поток мог прерваться на миг. Канал запускают ещё раз с первой ссылки.
             !retried -> {
                 retried = true
                 urlIndex = 0
                 setStatus(getString(R.string.loading))
                 handler.postDelayed(retry, 3000)
             }
-            // при листании нерабочий канал проскакиваем
+            // При переключении нерабочий канал пропускают.
             prefs.skipDead && moveDir != 0 && skipped < MAX_SKIP -> {
                 setStatus(getString(R.string.unavailable_skip))
                 handler.postDelayed(skipDead, 1500)

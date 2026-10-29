@@ -138,6 +138,14 @@ def t_startup():
     check("Запуск: канал стартует быстрее 15 с", bool(ready) and int(ready[0]["ms"]) < 15000,
           f"канал {current_channel(e)}, до первого кадра {ready[0]['ms']} мс" if ready else "нет события ready")
     check("Запуск: нет крэша", "FATAL" not in sh("logcat -d -b crash"))
+    # Второй запуск берёт сохранённую ссылку на поток и не ждёт сеть.
+    fresh_start()
+    e = st_events()
+    ready = ev(e, "ready")
+    cached = any(r.get("cached") == "true" for r in ev(e, "resolved"))
+    direct = not ev(e, "resolved")
+    check("Повторный запуск быстрее 4,5 с", bool(ready) and int(ready[0]["ms"]) < 4500,
+          f"{ready[0]['ms'] if ready else '—'} мс, сохранённая ссылка: {cached}, прямой поток: {direct}")
 
 
 def zap(direction, times, gap, label):
